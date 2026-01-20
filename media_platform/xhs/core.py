@@ -147,14 +147,14 @@ class XiaoHongShuCrawler(AbstractCrawler):
                     keyword=keyword
                 )
                 if checkpoint:
-                    # Resume from checkpoint
-                    start_page = checkpoint.get("last_page", start_page)
+                    # Resume from checkpoint - use checkpoint page, not config START_PAGE
+                    start_page = checkpoint.get("last_page", config.START_PAGE)
                     utils.logger.info(
                         f"[XiaoHongShuCrawler.search] Resuming from checkpoint: "
                         f"keyword={keyword}, page={start_page}"
                     )
             
-            page = 1
+            page = start_page  # Start from checkpoint page or configured START_PAGE
             search_id = get_search_id()
             while (page - start_page + 1) * xhs_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
                 if page < start_page:

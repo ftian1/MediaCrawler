@@ -29,22 +29,20 @@ from typing import Dict, Optional
 from pathlib import Path
 
 
-# Try to import utils logger, fallback to print if not available
+# Try to import utils logger, fallback to standard logging if not available
 try:
     from tools import utils
     logger = utils.logger
 except ImportError:
-    # Simple logger fallback for testing
-    class SimpleLogger:
-        @staticmethod
-        def info(msg):
-            print(f"[INFO] {msg}")
-        
-        @staticmethod
-        def error(msg):
-            print(f"[ERROR] {msg}")
-    
-    logger = SimpleLogger()
+    # Fallback to standard logging for testing and standalone usage
+    import logging
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('[%(levelname)s] %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
 
 
 class CheckpointManager:
@@ -64,8 +62,12 @@ class CheckpointManager:
         Initialize checkpoint manager
         
         Args:
-            checkpoint_file: Path to checkpoint file
+            checkpoint_file: Path to checkpoint file (relative or absolute)
         """
+        # Convert to absolute path for better portability
+        if not os.path.isabs(checkpoint_file):
+            # Use current working directory as base for relative paths
+            checkpoint_file = os.path.join(os.getcwd(), checkpoint_file)
         self.checkpoint_file = checkpoint_file
         self._ensure_directory()
     
@@ -208,8 +210,14 @@ class CheckpointManager:
         try:
             with open(self.checkpoint_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"[CheckpointManager] Invalid JSON in checkpoint file: {e}")
+            return {}
+        except (IOError, OSError) as e:
+            logger.error(f"[CheckpointManager] Failed to read checkpoint file: {e}")
+            return {}
         except Exception as e:
-            logger.error(f"[CheckpointManager] Failed to load checkpoints: {e}")
+            logger.error(f"[CheckpointManager] Unexpected error loading checkpoints: {e}")
             return {}
     
     @staticmethod
