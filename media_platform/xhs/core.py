@@ -133,10 +133,13 @@ class XiaoHongShuCrawler(AbstractCrawler):
         xhs_limit_count = 20  # Xiaohongshu limit page fixed value
         if config.CRAWLER_MAX_NOTES_COUNT < xhs_limit_count:
             config.CRAWLER_MAX_NOTES_COUNT = xhs_limit_count
-        start_page = config.START_PAGE
+        
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
             utils.logger.info(f"[XiaoHongShuCrawler.search] Current search keyword: {keyword}")
+            
+            # Initialize start_page for each keyword (reset for each iteration)
+            start_page = config.START_PAGE
             
             # Load checkpoint if enabled
             checkpoint = None
