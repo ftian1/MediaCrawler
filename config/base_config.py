@@ -117,6 +117,15 @@ FONT_PATH = "./docs/STZHONGS.TTF"
 # 爬取间隔时间
 CRAWLER_MAX_SLEEP_SEC = 2
 
+# ==================== 断点续传配置 (Checkpoint Resume) ====================
+# 是否启用断点续传功能
+# 启用后，爬虫会自动保存爬取进度，中断后可从上次位置继续
+# 建议配合数据库存储模式使用，以避免重复数据
+ENABLE_CHECKPOINT_RESUME = False
+
+# 断点文件保存路径
+CHECKPOINT_FILE_PATH = "data/checkpoint/crawler_checkpoint.json"
+
 from .bilibili_config import *
 from .xhs_config import *
 from .dy_config import *

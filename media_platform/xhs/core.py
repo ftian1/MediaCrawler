@@ -47,6 +47,7 @@ from .exception import DataFetchError
 from .field import SearchSortType
 from .help import parse_note_info_from_note_url, parse_creator_info_from_url, get_search_id
 from .login import XiaoHongShuLogin
+from tools.checkpoint import CheckpointManager
 
 
 class XiaoHongShuCrawler(AbstractCrawler):
@@ -61,6 +62,9 @@ class XiaoHongShuCrawler(AbstractCrawler):
         self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         self.cdp_manager = None
         self.ip_proxy_pool = None  # Proxy IP pool for automatic proxy refresh
+        # Initialize checkpoint manager
+        self.checkpoint_manager = CheckpointManager(config.CHECKPOINT_FILE_PATH) if config.ENABLE_CHECKPOINT_RESUME else None
+
 
     async def start(self) -> None:
         playwright_proxy_format, httpx_proxy_format = None, None
@@ -133,6 +137,23 @@ class XiaoHongShuCrawler(AbstractCrawler):
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
             utils.logger.info(f"[XiaoHongShuCrawler.search] Current search keyword: {keyword}")
+            
+            # Load checkpoint if enabled
+            checkpoint = None
+            if self.checkpoint_manager:
+                checkpoint = self.checkpoint_manager.load_checkpoint(
+                    platform="xhs",
+                    crawler_type="search",
+                    keyword=keyword
+                )
+                if checkpoint:
+                    # Resume from checkpoint
+                    start_page = checkpoint.get("last_page", start_page)
+                    utils.logger.info(
+                        f"[XiaoHongShuCrawler.search] Resuming from checkpoint: "
+                        f"keyword={keyword}, page={start_page}"
+                    )
+            
             page = 1
             search_id = get_search_id()
             while (page - start_page + 1) * xhs_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
@@ -165,15 +186,29 @@ class XiaoHongShuCrawler(AbstractCrawler):
                         ) for post_item in notes_res.get("items", {}) if post_item.get("model_type") not in ("rec_query", "hot_query")
                     ]
                     note_details = await asyncio.gather(*task_list)
+                    last_note_id = None
                     for note_detail in note_details:
                         if note_detail:
                             await xhs_store.update_xhs_note(note_detail)
                             await self.get_notice_media(note_detail)
                             note_ids.append(note_detail.get("note_id"))
                             xsec_tokens.append(note_detail.get("xsec_token"))
-                    page += 1
+                            last_note_id = note_detail.get("note_id")
+                    
                     utils.logger.info(f"[XiaoHongShuCrawler.search] Note details: {note_details}")
                     await self.batch_get_note_comments(note_ids, xsec_tokens)
+                    
+                    # Save checkpoint after successfully processing a page
+                    if self.checkpoint_manager and last_note_id:
+                        self.checkpoint_manager.save_checkpoint(
+                            platform="xhs",
+                            crawler_type="search",
+                            keyword=keyword,
+                            last_page=page + 1,  # Next page to crawl
+                            last_item_id=last_note_id
+                        )
+                    
+                    page += 1
 
                     # Sleep after each page navigation
                     await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
@@ -181,6 +216,15 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 except DataFetchError:
                     utils.logger.error("[XiaoHongShuCrawler.search] Get note detail error")
                     break
+            
+            # Clear checkpoint after successfully completing the keyword crawl
+            if self.checkpoint_manager:
+                self.checkpoint_manager.clear_checkpoint(
+                    platform="xhs",
+                    crawler_type="search",
+                    keyword=keyword
+                )
+                utils.logger.info(f"[XiaoHongShuCrawler.search] Checkpoint cleared for keyword: {keyword}")
 
     async def get_creators_and_notes(self) -> None:
         """Get creator's notes and retrieve their comment information."""
@@ -221,6 +265,15 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 note_ids.append(note_item.get("note_id"))
                 xsec_tokens.append(note_item.get("xsec_token"))
             await self.batch_get_note_comments(note_ids, xsec_tokens)
+            
+            # Clear checkpoint after successfully completing the creator crawl
+            if self.checkpoint_manager:
+                self.checkpoint_manager.clear_checkpoint(
+                    platform="xhs",
+                    crawler_type="creator",
+                    creator_id=user_id
+                )
+                utils.logger.info(f"[XiaoHongShuCrawler.get_creators_and_notes] Checkpoint cleared for creator: {user_id}")
 
     async def fetch_creator_notes_detail(self, note_list: List[Dict]):
         """Concurrently obtain the specified post list and save the data"""
